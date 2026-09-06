@@ -1,0 +1,38 @@
+[tool.ruff]
+line-length = 100
+# The container runs Python 3.13, but this code must also import on the 3.10
+# environment the test suite runs in. Setting the lint target to 3.10 stops
+# ruff rewriting portable constructs into 3.11+ only syntax such as
+# `datetime.UTC`, which would pass review and then fail to import.
+target-version = "py310"
+exclude = ["alembic/versions"]
+# Keep the lint cache out of the repository. Without this ruff writes a
+# .ruff_cache directory of binary blobs beside the source.
+cache-dir = "~/.cache/ruff/soc-analyst-dashboard"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+    # FastAPI's dependency-injection idiom IS a function call in a default
+    # argument. Flagging it would mean flagging every route in the project.
+    "B008",
+    # The project is bind-mounted from Windows, which reports every file as
+    # executable. A shebang rule on that mount is pure noise.
+    "EXE002",
+    # Line length is enforced by the formatter, not the linter.
+    "E501",
+    # UP042 wants `enum.StrEnum` and UP046 wants PEP 695 generics. Both are
+    # Python 3.11+/3.12+ only. The container runs 3.13, but this code must also
+    # import on the 3.10 environment the test suite runs in, so the portable
+    # forms are deliberate. See app/core/enums.py for the full reasoning.
+    "UP042",
+    "UP046",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test files legitimately import fixtures for their side effects and shadow
+# names to build scenarios.
+"tests/*" = ["F811", "ARG001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]

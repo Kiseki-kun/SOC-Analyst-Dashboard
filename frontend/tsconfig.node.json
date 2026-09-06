@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    // A composite project referenced by another must be able to emit; TS6310
+    // rejects noEmit here. Declarations go to a scratch directory that is
+    // git-ignored and never served.
+    "emitDeclarationOnly": true,
+    "declarationDir": "./.tsbuild",
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts"]
+}

@@ -1,0 +1,7 @@
+# Synthetic telemetry generator service.
+# Intentionally minimal: this service only builds dictionaries and POSTs them.
+
+pydantic>=2.8,<3.0
+pydantic-settings>=2.4,<3.0
+httpx>=0.27,<1.0
+structlog>=24.4,<26.0
