@@ -98,6 +98,52 @@ This is a real trade-off. Synchronous evaluation puts rule execution on the inge
 
 **There is no asynchronous processing in this project** — no message queue, task worker, cache, or search cluster. The stack is exactly what is listed below.
 
+## Dashboard Walkthrough
+
+Screenshots from a running instance, populated entirely by the synthetic telemetry generator.
+
+### Security operations overview
+
+![SOC dashboard showing open alert counts, event volume, alert severity distribution, authentication outcomes and most active source addresses](docs/images/dashboard.png)
+
+Open alert and incident counts, 24-hour event volume, open alerts by severity, successful against failed authentication over time, and the most active source addresses with their failure counts. Every tile is computed from stored records.
+
+### Alert queue
+
+![Alert queue filtered by severity and status, showing ATT&CK technique, source address, status and assignment for each alert](docs/images/alerts.png)
+
+The triage queue, filterable by severity and status and searchable by title, address or account. Each row carries its source address, mapped ATT&CK technique, status, assignment and age, with the event count and confidence score behind the alert.
+
+### Alert detail and evidence
+
+![Alert detail page showing why the rule fired, the supporting evidence fields, and the linked authentication events](docs/images/alert-detail.png)
+
+A password-spraying alert explains itself in plain language before showing the evidence the rule derived — failure count, window, distinct accounts and the threshold that was crossed — followed by the individual authentication events linked to it. The triage panel sets status, assigns the alert or escalates it to an incident; the pivot panel carries the alert's context into the event explorer.
+
+### ATT&CK mapping and analyst notes
+
+![Alert detail scrolled to the MITRE ATT&CK panel showing technique T1110 Brute Force under the Credential Access tactic, with the investigation notes field below](docs/images/alert-mitre.png)
+
+Each alert names its technique, tactic and a link to the published ATT&CK entry, alongside the full evidence set and a field for recording what was checked and concluded.
+
+### Event explorer
+
+![Event explorer showing normalized events across DNS, file, network, HTTP, process and authentication source types with filters for type, severity, outcome, source IP and account](docs/images/events.png)
+
+Every ingested event in one normalized schema, regardless of which source dialect produced it. Filters cover type, severity, outcome, source address and account, and the table sorts server-side against an allow-list of columns.
+
+### Incident case file
+
+![Incident detail page showing description, chronological timeline, status workflow and lifecycle timestamps](docs/images/incidents.png)
+
+An incident assembles the narrative: a written description, a chronological timeline of what happened and who did it, the status workflow, and the lifecycle timestamps that mean-time metrics are computed from.
+
+### Investigation notes and role enforcement
+
+![Incident page showing an analyst investigation note and the simulated response actions panel reporting that the current role cannot record response actions](docs/images/investigation.png)
+
+Investigation notes record the reasoning behind a verdict. The simulated response panel states plainly that it records intent and changes nothing outside this database — and, signed in as the Analyst account, that this role cannot record response actions. The same restriction is enforced server-side, not only hidden in the interface.
+
 ## Technology Stack
 
 | Layer | Technology |
