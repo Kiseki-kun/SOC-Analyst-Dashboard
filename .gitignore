@@ -3,6 +3,10 @@
 .env
 .env.*
 !.env.example
+# Vite build-time defaults for the deployed frontend. Contains only the public
+# API URL - no credentials - and must be committed or the production build
+# silently falls back to localhost.
+!frontend/.env.production
 *.pem
 *.key
 secrets/
