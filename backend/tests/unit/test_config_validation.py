@@ -168,3 +168,72 @@ class TestPublishedDemoCredentialsInProduction:
             f".env.example documents passwords the guard does not know: "
             f"{documented - guarded}"
         )
+
+
+class TestDatabaseDriverNormalisation:
+    """A managed provider's connection string must not select psycopg2.
+
+    SQLAlchemy maps a bare `postgresql://` to psycopg2, which this project does
+    not install. Neon prints exactly that form, so pasting it into
+    DATABASE_URL_OVERRIDE failed with `No module named 'psycopg2'` - an error
+    naming a package nobody chose. These tests pin the driver selection because
+    nothing else would notice it changing.
+    """
+
+    NEON = (
+        "postgresql://u:p@ep-example-000000.eu-central-1.aws.neon.tech"
+        "/neondb?sslmode=require&channel_binding=require"
+    )
+
+    def _driver(self, url: str) -> str:
+        from sqlalchemy.engine import make_url
+
+        settings = Settings(**_base(DATABASE_URL_OVERRIDE=url))
+        return make_url(settings.DATABASE_URL).get_dialect().driver
+
+    def test_bare_postgresql_url_selects_psycopg3(self):
+        assert self._driver(self.NEON) == "psycopg"
+
+    def test_legacy_postgres_scheme_selects_psycopg3(self):
+        assert self._driver(self.NEON.replace("postgresql://", "postgres://", 1)) == "psycopg"
+
+    def test_explicit_psycopg_url_is_left_alone(self):
+        explicit = self.NEON.replace("postgresql://", "postgresql+psycopg://", 1)
+        settings = Settings(**_base(DATABASE_URL_OVERRIDE=explicit))
+        assert explicit == settings.DATABASE_URL
+
+    def test_sqlite_override_is_untouched(self):
+        """The whole test suite depends on this passing through unchanged."""
+        settings = Settings(**_base(DATABASE_URL_OVERRIDE="sqlite+pysqlite:///:memory:"))
+        assert settings.DATABASE_URL == "sqlite+pysqlite:///:memory:"
+
+    def test_ssl_parameters_survive_normalisation(self):
+        """Neon refuses a connection without TLS, so losing these breaks it."""
+        settings = Settings(**_base(DATABASE_URL_OVERRIDE=self.NEON))
+        assert "sslmode=require" in settings.DATABASE_URL
+        assert "channel_binding=require" in settings.DATABASE_URL
+
+    def test_credentials_and_host_survive_normalisation(self):
+        from sqlalchemy.engine import make_url
+
+        url = make_url(Settings(**_base(DATABASE_URL_OVERRIDE=self.NEON)).DATABASE_URL)
+        assert url.host == "ep-example-000000.eu-central-1.aws.neon.tech"
+        assert url.database == "neondb"
+        assert url.username == "u"
+        assert url.password == "p"
+
+    def test_an_explicit_other_driver_is_respected(self):
+        """Overriding a deliberate choice would be worse than the error."""
+        explicit = "postgresql+psycopg2://u:p@host/db"
+        settings = Settings(**_base(DATABASE_URL_OVERRIDE=explicit))
+        assert explicit == settings.DATABASE_URL
+
+    def test_unparseable_url_is_returned_unchanged(self):
+        settings = Settings(**_base(DATABASE_URL_OVERRIDE="not a url at all"))
+        assert settings.DATABASE_URL == "not a url at all"
+
+    def test_local_compose_url_still_built_from_parts(self):
+        settings = Settings(**_base(POSTGRES_PASSWORD="local-pw"))
+        assert settings.DATABASE_URL == (
+            "postgresql+psycopg://soc:local-pw@postgres:5432/socdb"
+        )

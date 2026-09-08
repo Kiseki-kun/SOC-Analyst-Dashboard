@@ -47,8 +47,11 @@ def build_engine(settings: Settings) -> Engine:
         future=True,
         echo=False,
         pool_pre_ping=True,   # drop connections severed by a container restart
-        pool_size=10,
-        max_overflow=20,
+        # Sized for a small managed instance. 10+20 would let a single replica
+        # hold 30 connections, which is a large share of a free-tier limit and
+        # buys nothing at this request volume.
+        pool_size=5,
+        max_overflow=5,
         pool_recycle=1800,
     )
 

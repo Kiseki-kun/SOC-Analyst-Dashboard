@@ -53,9 +53,11 @@ def _set_refresh_cookie(response: Response, token: str, settings: Settings) -> N
         value=token,
         # httponly: unreadable from JavaScript, so XSS cannot exfiltrate it.
         httponly=True,
-        # lax: sent on top-level navigation but not on cross-site subrequests,
-        # which blocks the basic CSRF shape without breaking the SPA.
-        samesite="lax",
+        # Configurable because it depends on deployment topology. "lax" (the
+        # default) blocks the basic CSRF shape without breaking a same-site SPA.
+        # A separately hosted frontend is cross-site and needs "none", which is
+        # only valid alongside Secure - the configuration refuses that pairing.
+        samesite=settings.COOKIE_SAMESITE,
         # Only over HTTPS outside local development.
         secure=settings.COOKIE_SECURE,
         # Scoped to the auth routes: the cookie is not attached to every API
@@ -223,7 +225,9 @@ def logout(
         key=settings.REFRESH_COOKIE_NAME,
         path=f"{settings.API_V1_PREFIX}/auth",
         httponly=True,
-        samesite="lax",
+        # Must match the attributes used when the cookie was set, or the browser
+        # treats it as a different cookie and the deletion silently misses.
+        samesite=settings.COOKIE_SAMESITE,
         secure=settings.COOKIE_SECURE,
     )
     audit.record(db, action=AuditAction.LOGOUT, actor=user, request=request)

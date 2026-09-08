@@ -14,6 +14,7 @@ from typing import Literal
 
 from pydantic import computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 # The demo passwords documented in .env.example. That file is committed, so
 # these are public the moment the repository is. Kept at module level and not
@@ -25,6 +26,41 @@ PUBLISHED_DEMO_PASSWORDS = frozenset({
     "ChangeMe_Responder_123!",
     "ChangeMe_Viewer_123!",
 })
+
+
+def normalise_database_driver(url: str) -> str:
+    """Pin a PostgreSQL URL to psycopg 3, the driver this project installs.
+
+    SQLAlchemy maps a bare `postgresql://` to **psycopg2**, which is not a
+    dependency here - so a connection string copied verbatim from a managed
+    provider's dashboard fails with `ModuleNotFoundError: No module named
+    'psycopg2'`, naming a package nobody chose to use. Neon hands out exactly
+    that form, and so does almost every other host.
+
+    Only an absent driver is filled in. An explicit `+driver` is left alone:
+    someone who wrote it meant it, and silently overriding it would be worse
+    than the error. Non-PostgreSQL URLs (the SQLite test harness) pass through
+    untouched, as does anything unparseable - normalisation must never be the
+    reason a URL stops working.
+
+    The query string survives, which is what preserves `sslmode=require` and
+    `channel_binding=require`.
+    """
+    try:
+        parsed = make_url(url)
+    except Exception:
+        return url
+
+    backend, _, driver = parsed.drivername.partition("+")
+    # `postgres://` is a legacy alias some providers still print. SQLAlchemy
+    # does not recognise it at all.
+    if backend not in ("postgresql", "postgres"):
+        return url
+    if driver:
+        return url
+    return parsed.set(drivername="postgresql+psycopg").render_as_string(
+        hide_password=False
+    )
 
 
 class Settings(BaseSettings):
@@ -60,6 +96,12 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     BCRYPT_ROUNDS: int = 12
     COOKIE_SECURE: bool = False
+    # "lax" is correct when the frontend and API are same-site, which is the
+    # Docker Compose layout. A frontend on its own host - static hosting plus a
+    # separately deployed API - is cross-site, and a Lax cookie is simply not
+    # attached to that request: sessions then die at the first silent refresh.
+    # "none" is the fix, and it is only honoured over HTTPS.
+    COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
     REFRESH_COOKIE_NAME: str = "soc_refresh_token"
 
     CORS_ORIGINS: str = "http://localhost:54173"
@@ -109,25 +151,36 @@ class Settings(BaseSettings):
             )
         return value
 
-    @field_validator("POSTGRES_PASSWORD")
-    @classmethod
-    def _require_database_password(cls, value: str, info) -> str:
-        """Refuse an empty database password outside the test environment.
+    @model_validator(mode="after")
+    def _require_database_password(self) -> Settings:
+        """Refuse an empty database password when the URL is built from parts.
 
         An empty value here means .env was not loaded. Failing at startup with
         a clear message beats the alternative: a connection attempt that fails
         later with an authentication error nobody traces back to configuration.
+
+        Skipped entirely when DATABASE_URL_OVERRIDE is set: the override
+        supplies the whole connection string, so POSTGRES_PASSWORD is never
+        read (see DATABASE_URL below) and demanding it would force a managed
+        deployment - Neon, RDS, any hosted PostgreSQL - to invent a value that
+        nothing consumes.
+
+        This is a model validator rather than a field validator because
+        DATABASE_URL_OVERRIDE is declared after POSTGRES_PASSWORD, so a field
+        validator on the password cannot see it.
         """
-        if not value.strip():
+        if self.DATABASE_URL_OVERRIDE:
+            return self
+        if not self.POSTGRES_PASSWORD.strip():
             raise ValueError(
                 "POSTGRES_PASSWORD is empty. This almost always means .env was "
                 "not created or not loaded - run scripts/init-env.ps1."
             )
-        if value.startswith("change_me"):
+        if self.POSTGRES_PASSWORD.startswith("change_me"):
             raise ValueError(
                 "POSTGRES_PASSWORD is still the placeholder from .env.example."
             )
-        return value
+        return self
 
     @field_validator("BCRYPT_ROUNDS")
     @classmethod
@@ -140,7 +193,7 @@ class Settings(BaseSettings):
     @property
     def DATABASE_URL(self) -> str:
         if self.DATABASE_URL_OVERRIDE:
-            return self.DATABASE_URL_OVERRIDE
+            return normalise_database_driver(self.DATABASE_URL_OVERRIDE)
         return (
             f"postgresql+psycopg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
@@ -157,6 +210,23 @@ class Settings(BaseSettings):
         API to any origin.
         """
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @model_validator(mode="after")
+    def _samesite_none_requires_secure(self) -> Settings:
+        """`SameSite=None` without `Secure` is discarded by every current browser.
+
+        Refusing at startup beats the alternative: the API returns 200, the
+        Set-Cookie header looks right in the response, and the browser drops it
+        silently - so login "works" and every refresh afterwards fails with no
+        error anywhere to explain why.
+        """
+        if self.COOKIE_SAMESITE == "none" and not self.COOKIE_SECURE:
+            raise ValueError(
+                "COOKIE_SAMESITE=none requires COOKIE_SECURE=true. Browsers "
+                "discard a SameSite=None cookie that is not marked Secure, so "
+                "the refresh cookie would never be stored."
+            )
+        return self
 
     @model_validator(mode="after")
     def _no_published_demo_credentials_in_production(self) -> Settings:
